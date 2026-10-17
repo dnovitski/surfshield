@@ -1,0 +1,42 @@
+# Example configuration.
+# Copy to ./surfshield.toml or ~/.config/surfshield/config.toml, or pass it with --config.
+# All fields are optional; the values below are the defaults (except denied_domains).
+
+[policy]
+# Domains that may not be accessed. "*.example.com" blocks example.com
+# and all subdomains; "example.com" only that exact domain.
+denied_domains = ["*.internal.example.com"]
+allowed_schemes = ["http", "https"]
+denied_ports = []
+# Allow loopback, private (RFC1918), link-local etc. Only for local development.
+allow_private_ips = false
+# Request headers the AI may not set. A trailing "*" matches a prefix.
+denied_request_headers = [
+    "host", "content-length", "transfer-encoding", "connection",
+    "keep-alive", "upgrade", "te", "trailer", "proxy-*",
+]
+# HTTP methods that may be used. ["GET", "HEAD"] gives read-only access.
+allowed_methods = ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"]
+
+[limits]
+max_body_bytes = 10_000_000
+max_output_chars = 100_000
+connect_timeout_secs = 5
+total_timeout_secs = 30
+max_redirects = 5
+max_request_headers = 50
+max_request_header_bytes = 8192
+max_request_body_bytes = 1_000_000
+
+[http]
+user_agent = "surfshield/0.1.0"
+# Send all requests through this proxy (default: no proxy; HTTP(S)_PROXY and the
+# system proxy are never used). Always an IP address and a port.
+#   socks5://   DNS here, via the policy: the IP check keeps applying
+#   socks5h://  DNS at the proxy: only the URL checks apply
+#   http://     HTTP proxy (CONNECT for https): only the URL checks apply
+# proxy = "socks5h://127.0.0.1:1082"
+
+[download]
+# Directory that MCP save_to paths must stay within.
+download_dir = "./surfshield-downloads"

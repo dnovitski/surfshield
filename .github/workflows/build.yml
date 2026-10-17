@@ -1,0 +1,81 @@
+# Builds and tests surfshield on every push and pull request.
+# Pushing a tag like v1.2.3 also publishes a GitHub Release with "surfshield-1.2.3-aarch64-apple-darwin.tar.gz"
+# and updates the formula in dnovitski/homebrew-tap.
+name: Build
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-15
+    env:
+      TAP_TOKEN: ${{ secrets.TAP_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Version
+        run: |
+          crate=$(sed -nE 's/^version = "(.*)"/\1/p' Cargo.toml | head -1)
+          if [[ "$GITHUB_REF_TYPE" == tag ]]; then
+            VERSION=${GITHUB_REF_NAME#v}
+            if [[ "$VERSION" != "$crate" ]]; then
+              echo "::error::Tag $GITHUB_REF_NAME does not match Cargo.toml version $crate"
+              exit 1
+            fi
+          else
+            VERSION=$crate
+          fi
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+
+      - name: Test
+        run: cargo test --locked
+
+      - name: Build
+        run: cargo build --release --locked
+
+      - name: Smoke test
+        run: target/release/surfshield --version
+
+      - name: Package
+        run: |
+          mkdir dist
+          cp target/release/surfshield surfshield.example.toml README.md dist/
+          tar -czf "surfshield-$VERSION-aarch64-apple-darwin.tar.gz" -C dist .
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: surfshield-${{ env.VERSION }}
+          path: surfshield-*.tar.gz
+
+      - name: Release
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Re-pushing a tag replaces its release.
+          gh release delete "$GITHUB_REF_NAME" --yes 2>/dev/null || true
+          gh release create "$GITHUB_REF_NAME" "surfshield-$VERSION-aarch64-apple-darwin.tar.gz" \
+            --title "surfshield $VERSION" --generate-notes
+
+      - name: Update Homebrew tap
+        if: github.ref_type == 'tag' && env.TAP_TOKEN != ''
+        run: |
+          # The formula installs the prebuilt binary, so installing needs no access to crates.io.
+          asset="surfshield-$VERSION-aarch64-apple-darwin.tar.gz"
+          url="https://github.com/$GITHUB_REPOSITORY/releases/download/$GITHUB_REF_NAME/$asset"
+          sha=$(shasum -a 256 "$asset" | cut -d' ' -f1)
+          git clone "https://x-access-token:$TAP_TOKEN@github.com/dnovitski/homebrew-tap.git" tap
+          sed -i '' -E "s#^  url \".*\"#  url \"$url\"#; s#^  sha256 \".*\"#  sha256 \"$sha\"#" tap/Formula/surfshield.rb
+          cd tap
+          git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+            commit -am "surfshield $VERSION"
+          git push
